@@ -60,3 +60,9 @@ Single [file](https://github.com/brianmed/scootr/releases) deployment.
 $ git clone https://github.com/brianmed/scootr.git
 $ dotnet publish -c Release --self-contained
 ```
+
+## Generate Self-Signed Certificate and Key
+
+```bash
+$ openssl req -x509 -newkey rsa:4096 -keyout key.pem -out cert.pem -sha256 -days 3650 -nodes -subj "/C=XX/ST=StateName/L=CityName/O=CompanyName/OU=CompanySectionName/CN=localhost"
+```
