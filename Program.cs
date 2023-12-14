@@ -1,23 +1,90 @@
-using Microsoft.AspNetCore.StaticFiles;
+using System.Security.Cryptography.X509Certificates;
 
-namespace ServeDirectory;
+using Microsoft.AspNetCore.HttpLogging;
+using Microsoft.AspNetCore.Server.Kestrel.Core;
+using Microsoft.AspNetCore.StaticFiles;
+using Microsoft.Extensions.FileProviders;
+
+using Mono.Options;
+
+namespace Scootr;
 
 public class Program
 {
-    /// <summary>
-    /// Static File Web Server
-    /// </summary>
-    /// <param name="urls">IP Addresses and Ports to Listen on</param>
-    /// <param name="webroot">Directory to Serve Static Files From</param>
-
-    public static void Main(string urls = "http://*:8080", string webroot = ".")
+    public static void Main(string[] args)
     {
+        string urls = "http://*:8080";
+        string webroot = ".";
+        bool showHelp = false;
+        string sslCertFile = null;
+        string sslCertPassword = null;
+        string sslKeyFile = null;
+
+		OptionSet p = new()
+        {
+			"Usage: scootr [OPTIONS]",
+			"Static File Web Server",
+			"",
+			"Options:",
+			{ "sslCertFile=", "SSL Certificate File (PEM Encoded)", (string v) => sslCertFile = v },
+			{ "sslCertPassword=", "SSL Certificate File", (string v) => sslCertPassword = v },
+			{ "sslKeyFile=", "SSL Key File (PEM Encoded)", (string v) => sslKeyFile = v },
+			{ "urls=", "IP Addresses and Ports to List on [default: http://*:8080]", (string v) => urls = v },
+			{ "webroot=", "Directory to Serve Static Files from [default: .]", (string v) => webroot = v },
+			{ "h|help",  "Show this Message and Exit", v => showHelp = v != null },
+		};
+
+		List<string> extra;
+
+		try
+        {
+			extra = p.Parse(args);
+		}
+		catch (OptionException e)
+        {
+			Console.Write("scootr: ");
+			Console.WriteLine(e.Message);
+			Console.WriteLine("Try 'scootr --help' for more information.");
+
+			return;
+		}
+
+		if (showHelp)
+        {
+			p.WriteOptionDescriptions(Console.Out);
+
+            Environment.Exit(0);
+		}
+
         WebApplicationBuilder builder = WebApplication.CreateBuilder(new WebApplicationOptions()
         {
             Args = System.Environment.GetCommandLineArgs(),
             WebRootPath = webroot
         });
 
+        builder
+            .WebHost
+            .UseKestrel()
+            .ConfigureKestrel((context, options) =>
+            {
+                options.ConfigureEndpointDefaults(defaults =>
+                {
+                    defaults.Protocols = HttpProtocols.Http1AndHttp2AndHttp3;
+                    defaults.KestrelServerOptions.ConfigureHttpsDefaults(httpsDefaults =>
+                    {
+                        httpsDefaults.AllowAnyClientCertificate();
+
+                        if (sslCertFile is string && sslKeyFile is string)
+                        {
+                            X509Certificate2 certificate = sslCertPassword is string
+                                ? X509Certificate2.CreateFromEncryptedPemFile(sslCertFile, sslCertPassword, sslKeyFile)
+                                : X509Certificate2.CreateFromPemFile(sslCertFile, sslKeyFile);
+
+                            httpsDefaults.ServerCertificate = certificate;
+                        }
+                    });
+                });
+            });
 
         builder
             .Services
@@ -26,8 +93,6 @@ public class Program
         WebApplication app = builder.Build();
 
         app.Urls.Add(urls);
-
-        app.UseDirectoryBrowser();
 
         FileExtensionContentTypeProvider provider = new();
 
@@ -54,8 +119,15 @@ public class Program
         app.UseStaticFiles(new StaticFileOptions
         {
             ServeUnknownFileTypes = true,
-            DefaultContentType = "application/octet-stream",
+            DefaultContentType = "text/plain",
             ContentTypeProvider = provider
+        });
+
+        app.UseDirectoryBrowser(new DirectoryBrowserOptions()
+        {
+            FileProvider = new PhysicalFileProvider(Path.GetFullPath(webroot)),
+            RequestPath = new PathString(""),
+            Formatter = new SortedHtmlDirectoryFormatter()
         });
         
         app.Run();
