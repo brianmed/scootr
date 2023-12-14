@@ -92,7 +92,10 @@ public class Program
 
         WebApplication app = builder.Build();
 
-        app.Urls.Add(urls);
+        foreach (string url in urls.Split(";"))
+        {
+            app.Urls.Add(url);
+        }
 
         FileExtensionContentTypeProvider provider = new();
 
